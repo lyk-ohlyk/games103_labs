@@ -11,16 +11,17 @@ public class Rigid_Bunny : MonoBehaviour
     Vector3 m_w = new Vector3(0, 0, 0);	// angular velocity
     Vector3 gravity = new Vector3(0, -9.8f, 0);
 
+    Vector3 init_v = new Vector3(5, 3, 0);   // velocity
+    Vector3 init_w = new Vector3(1, 1, 5);	// angular velocity
+
     float mass;                                 // mass
     Matrix4x4 I_ref;                            // reference inertia
 
     float linear_decay = 0.999f;                // for velocity decay
-    float angular_decay = 0.98f;
-    float restitution = 0.5f;                   // for collision
-    
-    float friction_mu_t = 0.5f;                 // friction coefficient
-    float friction_mu_n = 0.7f;
+    float angular_decay = 0.999f;
 
+    float friction_mu_t = 0.4f;                 // friction coefficient
+    float restitution = 0.5f;                   // for collision
 
     // Use this for initialization
     void Start()
@@ -83,37 +84,48 @@ public class Rigid_Bunny : MonoBehaviour
         // rotate matrix, convert rotation to matrix
         Matrix4x4 rotate_mat = Matrix4x4.Rotate(transform.rotation);
 
+        Vector3 collision_avg_point = new Vector3();  // avg point of collision
+        Vector3 collision_avg_vi = new Vector3();  // avg speed of collision
+
+        int collision_count = 0;
+        Matrix4x4 angular_speed_mat = Get_Cross_Matrix(m_w);  // 获得角速度矩阵
         for (int i = 0; i < vertices.Length; i++)
         {
-            // 获取顶点的当前世界坐标
-            Vector3 t = transform.TransformPoint(vertices[i]);
-            // 碰撞检测
+            Vector3 t = transform.TransformPoint(vertices[i]);  // 取顶点的世界坐标碰撞检测
             if (!TestCollision(t, P, N)) continue;
-            // 计算 vi_new
-            Vector3 p = t - P;
-            Vector3 vi_n = Vector3.Dot(m_v, N) * N;
-            Vector3 vi_t = m_v - vi_n;
-            float a = Mathf.Max(1.0f - friction_mu_t * (1.0f + friction_mu_n) * vi_n.magnitude / vi_t.magnitude, 0.0f);
-            Vector3 vi_n_new = -friction_mu_n * vi_n;
-            Vector3 vi_t_new = a * vi_t;
-            Vector3 vi_new = vi_n_new + vi_t_new;
-            
-            Vector3 p_new = rotate_mat * p;  // 计算旋转后的p
-            Matrix4x4 P_mat = Get_Cross_Matrix(p_new); // 构造P*矩阵
-            Matrix4x4 I4 = Matrix4x4.identity; // 获得单位阵
-            // 计算K
-            Matrix4x4 K = SubMate4x4(MulMat4x4(I4, 1.0f / mass), (P_mat * I_ref.inverse * P_mat));
-            // 计算 impluse J
-            Vector3 J = K.inverse * (vi_new - m_v);
-            // 计算 v_new
-            m_v += J / mass;
-            // 计算 w_new
-            Vector4 vector4 = I_ref.inverse * P_mat * J;  // 前3项为w
-            m_w += new Vector3(vector4.x, vector4.y, vector4.z);
+            Vector3 Rri = rotate_mat.MultiplyPoint(vertices[i]);
+            Vector3 vi = m_v + angular_speed_mat.MultiplyPoint(Rri);  // 顶点速度
+            if (Vector3.Dot(vi, N) > 0) continue;  // 顶点速度与法向量同向，不碰撞
+
+            collision_avg_point += Rri;
+            collision_avg_vi += vi;
+            collision_count++;
         }
+        if (collision_count == 0) return;
+        collision_avg_point /= collision_count;
+        collision_avg_vi /= collision_count;
+
+        // 计算 vi_new
+        Vector3 vi_n = Vector3.Dot(collision_avg_vi, N) * N;
+        Vector3 vi_t = collision_avg_vi - vi_n;
+
+        float a = Mathf.Max(1.0f - friction_mu_t * (1.0f + restitution) * vi_n.magnitude / vi_t.magnitude, 0.0f);
+        Vector3 vi_n_new = -restitution * vi_n;
+        Vector3 vi_t_new = a * vi_t;
+        Vector3 vi_new = vi_n_new + vi_t_new;
+
+        // Vector3 p_new = rotate_mat * collision_avg_point;  // 计算旋转后的p
+        Matrix4x4 P_mat = Get_Cross_Matrix(collision_avg_point); // 构造P*矩阵
+        Matrix4x4 K = SubMat(MulMat(Matrix4x4.identity, 1.0f / mass), P_mat * I_ref.inverse * P_mat);
+        // 计算 impluse J
+        Vector3 J = K.inverse * (vi_new - collision_avg_vi);
+        m_v += J / mass;
+        m_w += I_ref.inverse.MultiplyPoint(P_mat.MultiplyPoint(J));
+
+        restitution *= 0.5f;
     }
 
-    static Matrix4x4 MulMat4x4(Matrix4x4 a, float b)
+    static Matrix4x4 MulMat(Matrix4x4 a, float b)
     {
         Matrix4x4 ret = new Matrix4x4();
         for (int i = 0; i < 4; i++)
@@ -121,7 +133,7 @@ public class Rigid_Bunny : MonoBehaviour
         return ret;
     }
 
-    static Matrix4x4 SubMate4x4(Matrix4x4 a, Matrix4x4 b)
+    static Matrix4x4 SubMat(Matrix4x4 a, Matrix4x4 b)
     {
         Matrix4x4 ret = new Matrix4x4();
         for (int i = 0; i < 4; i++)
@@ -129,17 +141,10 @@ public class Rigid_Bunny : MonoBehaviour
         return ret;
     }
 
-    Quaternion MultiplyForQuaternion(Vector4 multiplier, Quaternion q)
+    Quaternion AddQuat(Quaternion s, Quaternion v)
     {
-        Vector3 v1 = new Vector3(multiplier.y, multiplier.z, multiplier.w);
-        Vector3 v2 = new Vector3(q.y, q.z, q.w);
-        Vector3 v3 = multiplier.x * v2 + q.x * v1 + Vector3.Cross(v1, v2);
-        Quaternion ret = new Quaternion();
-        ret.x = multiplier.x * q.x - Vector3.Dot(v1, v2); ;
-        ret.y = v3.x;
-        ret.z = v3.y;
-        ret.w = v3.z;
-        return ret;
+        Quaternion q = new Quaternion(s.x + v.x, s.y + v.y, s.z + v.z, s.w + v.w);
+        return q;
     }
 
     void ResetEntityPos()
@@ -147,14 +152,15 @@ public class Rigid_Bunny : MonoBehaviour
         m_v = new Vector3();
         m_w = new Vector3();
         transform.position = new Vector3(0, 0.6f, 0);
-        restitution = 0.5f;
         launched = false;
     }
 
     void InitEntitySpeed()
     {
-        m_v = new Vector3(5, 2, 0);
-        m_w = new Vector3(5f, 5f, 0);
+        m_v = init_v;
+        m_w = init_w;
+        friction_mu_t = 0.4f;
+        restitution = 0.5f;
         launched = true;
     }
 
@@ -195,11 +201,10 @@ public class Rigid_Bunny : MonoBehaviour
         //Update angular status
         Quaternion q = transform.rotation;
         m_w -= angular_decay * delta_time * m_w;
-        float half_dt = delta_time / 2.0f;
-        Vector4 multiplier = new Vector4(0, half_dt * m_w.x, half_dt * m_w.y, half_dt * m_w.z);
-        Quaternion add_q = MultiplyForQuaternion(multiplier, q);
-        q.x += add_q.x; q.y += add_q.y;
-        q.z += add_q.z; q.w += add_q.w;
+
+        Quaternion dq = new Quaternion(dt * m_w.x / 2, dt * m_w.y / 2, dt * m_w.z / 2, 0.0f);
+        q = AddQuat(q, dq * q);
+        q = Quaternion.Normalize(q);
 
         // Part IV: Assign to the object
         transform.position = x;
