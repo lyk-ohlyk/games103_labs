@@ -81,12 +81,11 @@ public class Rigid_Bunny : MonoBehaviour
         Mesh mesh = GetComponent<MeshFilter>().mesh;
         Vector3[] vertices = mesh.vertices;
 
-        // rotate matrix, convert rotation to matrix
         Matrix4x4 rotate_mat = Matrix4x4.Rotate(transform.rotation);
-
         Vector3 collision_avg_point = new Vector3();  // avg point of collision
         Vector3 collision_avg_vi = new Vector3();  // avg speed of collision
 
+        // 计算碰撞点和碰撞点速度
         int collision_count = 0;
         Matrix4x4 angular_speed_mat = Get_Cross_Matrix(m_w);  // 获得角速度矩阵
         for (int i = 0; i < vertices.Length; i++)
@@ -108,13 +107,11 @@ public class Rigid_Bunny : MonoBehaviour
         // 计算 vi_new
         Vector3 vi_n = Vector3.Dot(collision_avg_vi, N) * N;
         Vector3 vi_t = collision_avg_vi - vi_n;
-
         float a = Mathf.Max(1.0f - friction_mu_t * (1.0f + restitution) * vi_n.magnitude / vi_t.magnitude, 0.0f);
         Vector3 vi_n_new = -restitution * vi_n;
         Vector3 vi_t_new = a * vi_t;
         Vector3 vi_new = vi_n_new + vi_t_new;
-
-        // Vector3 p_new = rotate_mat * collision_avg_point;  // 计算旋转后的p
+        // 计算 K
         Matrix4x4 P_mat = Get_Cross_Matrix(collision_avg_point); // 构造P*矩阵
         Matrix4x4 K = SubMat(MulMat(Matrix4x4.identity, 1.0f / mass), P_mat * I_ref.inverse * P_mat);
         // 计算 impluse J
