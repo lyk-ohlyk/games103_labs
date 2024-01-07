@@ -6,7 +6,7 @@ Impulse method
 
 Shape matching
 
-![rigid_shap_matching](https://github.com/lyk-ohlyk/games103_labs/assets/18349598/5aadb03b-d518-46f5-a515-95965dd531fd)
+![rigid_shap_matching](https://github.com/lyk-ohlyk/games103_labs/assets/18349598/48ff0f17-a99c-4b07-8605-f90502b2caa2)
 
 ## lab2: cloth simulation
 implicit_model
